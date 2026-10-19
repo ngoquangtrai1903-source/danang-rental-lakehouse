@@ -1,0 +1,39 @@
+# Local secrets and environment
+.env
+.env.*
+!.env.example
+
+# Python environments and generated files
+.venv/
+.venv-*/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE and operating-system files
+.idea/
+.DS_Store
+Thumbs.db
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Generated notebook map export (keep the GeoJSON inputs)
+/notebooks/danang_flood_map_pro.html
+
+# Scraped and pipeline-generated datasets (Bronze source of truth is R2)
+/data/raw/
+/data/processed/
+/data/final/
+
+# Reports, model artifacts, local database exports and logs
+/reports/
+/bronze_ops.sql
+*.log
+*.tmp
