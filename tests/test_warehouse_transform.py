@@ -58,6 +58,8 @@ class WarehouseTransformTests(unittest.TestCase):
                 make_warehouse_source(list_id="zero-price", price_vnd=0),
                 make_warehouse_source(list_id="null-size", size_m2=None),
                 make_warehouse_source(list_id="zero-size", size_m2=0),
+                make_warehouse_source(list_id="negative-price", price_vnd=-1),
+                make_warehouse_source(list_id="negative-size", size_m2=-1),
                 make_warehouse_source(
                     list_id="apartment-alias", category_name="Căn hộ"
                 ),
@@ -84,15 +86,103 @@ class WarehouseTransformTests(unittest.TestCase):
         self.assertEqual(
             stats,
             {
-                "source_rows": 8,
-                "rejected_invalid_or_zero_price_size": 4,
+                "source_rows": 10,
+                "rejected_invalid_or_non_positive_price_size": 6,
                 "rejected_unsupported_category": 2,
                 "rejected_unsupported_or_null_ward": 0,
                 "rejected_missing_or_invalid_coordinates": 0,
+                "rejected_outside_coordinate_bounds": 0,
+                "rejected_rental_room_over_price_limit": 0,
+                "size_m2_imputed_by_group_median": 0,
                 "rejected_invalid_rooms": 0,
+                "rooms_imputed_with_mode": 0,
+                "rejected_rooms_over_limit": 0,
                 "loaded_rows": 2,
             },
         )
+
+    def test_rejects_zero_size_even_when_group_median_is_available(self):
+        source = pd.DataFrame(
+            [
+                make_warehouse_source(
+                    list_id="apartment-2-hai-chau-10",
+                    category_name="Căn hộ",
+                    rooms="2",
+                    size_m2=10,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-2-hai-chau-30",
+                    category_name="Căn hộ/Chung cư",
+                    rooms="2 PN",
+                    size_m2=30,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-2-hai-chau-zero",
+                    category_name="Căn hộ",
+                    rooms="2 PN",
+                    size_m2=0,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-2-son-tra-60",
+                    category_name="Căn hộ",
+                    rooms="2",
+                    ward_name="Sơn Trà",
+                    size_m2=60,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-2-son-tra-zero",
+                    category_name="Căn hộ",
+                    rooms="2",
+                    ward_name="Sơn Trà",
+                    size_m2=0,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-1-hai-chau-100",
+                    category_name="Căn hộ",
+                    rooms="1",
+                    size_m2=100,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-1-hai-chau-zero",
+                    category_name="Căn hộ",
+                    rooms="1",
+                    size_m2=0,
+                ),
+                make_warehouse_source(
+                    list_id="rental-hai-chau-200",
+                    category_name="Phòng trọ",
+                    rooms="1",
+                    size_m2=200,
+                ),
+                make_warehouse_source(
+                    list_id="rental-hai-chau-zero",
+                    category_name="Phòng trọ",
+                    rooms="1",
+                    size_m2=0,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-no-median",
+                    category_name="Căn hộ",
+                    rooms="3",
+                    size_m2=0,
+                ),
+            ]
+        )
+
+        transformed, stats = transform_lake_final(source)
+
+        self.assertEqual(
+            transformed["list_id"].tolist(),
+            [
+                "apartment-2-hai-chau-10",
+                "apartment-2-hai-chau-30",
+                "apartment-2-son-tra-60",
+                "apartment-1-hai-chau-100",
+                "rental-hai-chau-200",
+            ],
+        )
+        self.assertEqual(stats["size_m2_imputed_by_group_median"], 0)
+        self.assertEqual(stats["rejected_invalid_or_non_positive_price_size"], 5)
 
     def test_normalizes_room_counts_and_keeps_unknown_marker(self):
         source = pd.DataFrame(
@@ -158,10 +248,133 @@ class WarehouseTransformTests(unittest.TestCase):
         )
         self.assertEqual(
             transformed["rooms"].tolist(),
-            ["2", "1", "1", "1", "1", "Không xác định"],
+            ["2", "1", "1", "1", "1", "2"],
         )
         self.assertEqual(stats["rejected_invalid_rooms"], 1)
+        self.assertEqual(stats["rooms_imputed_with_mode"], 1)
         self.assertEqual(stats["loaded_rows"], 6)
+
+    def test_filters_coordinate_bounds_rental_price_and_room_count(self):
+        source = pd.DataFrame(
+            [
+                make_warehouse_source(
+                    list_id=f"rental-{index}",
+                    price_vnd=10_000_000,
+                    rooms="unknown",
+                )
+                for index in range(4)
+            ]
+            + [
+                make_warehouse_source(
+                    list_id="rental-max-price-boundary",
+                    price_vnd=10_000_000,
+                    latitude=15.9167,
+                    longitude=107.3,
+                ),
+                make_warehouse_source(
+                    list_id="rental-over-price",
+                    price_vnd=10_000_001,
+                ),
+                make_warehouse_source(
+                    list_id="outside-bounds",
+                    longitude=108.3334,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-two-a",
+                    category_name="Căn hộ",
+                    price_vnd=20_000_000,
+                    rooms="2",
+                ),
+                make_warehouse_source(
+                    list_id="apartment-two-b",
+                    category_name="Căn hộ",
+                    price_vnd=20_000_000,
+                    rooms="2 PN",
+                    latitude=16.2333,
+                    longitude=108.3333,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-four",
+                    category_name="Căn hộ",
+                    price_vnd=20_000_000,
+                    rooms="4",
+                ),
+                make_warehouse_source(
+                    list_id="apartment-unknown",
+                    category_name="Căn hộ",
+                    price_vnd=20_000_000,
+                    rooms="Không xác định",
+                ),
+            ]
+        )
+
+        transformed, stats = transform_lake_final(source)
+
+        self.assertEqual(
+            transformed["list_id"].tolist(),
+            [
+                "rental-0",
+                "rental-1",
+                "rental-2",
+                "rental-3",
+                "rental-max-price-boundary",
+                "apartment-two-a",
+                "apartment-two-b",
+                "apartment-unknown",
+            ],
+        )
+        self.assertEqual(
+            transformed.loc[
+                transformed["list_id"].eq("apartment-unknown"), "rooms"
+            ].iloc[0],
+            "2",
+        )
+        self.assertEqual(stats["rejected_outside_coordinate_bounds"], 1)
+        self.assertEqual(stats["rejected_rental_room_over_price_limit"], 1)
+        self.assertEqual(stats["rooms_imputed_with_mode"], 1)
+        self.assertEqual(stats["rejected_rooms_over_limit"], 1)
+
+    def test_room_mode_uses_apartments_before_applying_three_room_limit(self):
+        source = pd.DataFrame(
+            [
+                make_warehouse_source(
+                    list_id=f"rental-{index}",
+                    rooms="unknown",
+                )
+                for index in range(3)
+            ]
+            + [
+                make_warehouse_source(
+                    list_id="apartment-four-a",
+                    category_name="Căn hộ",
+                    rooms="4",
+                ),
+                make_warehouse_source(
+                    list_id="apartment-four-b",
+                    category_name="Căn hộ",
+                    rooms="4",
+                ),
+                make_warehouse_source(
+                    list_id="apartment-two",
+                    category_name="Căn hộ",
+                    rooms="2",
+                ),
+                make_warehouse_source(
+                    list_id="apartment-unknown",
+                    category_name="Căn hộ",
+                    rooms=None,
+                ),
+            ]
+        )
+
+        transformed, stats = transform_lake_final(source)
+
+        self.assertEqual(
+            transformed["list_id"].tolist(),
+            ["rental-0", "rental-1", "rental-2", "apartment-two"],
+        )
+        self.assertEqual(stats["rooms_imputed_with_mode"], 1)
+        self.assertEqual(stats["rejected_rooms_over_limit"], 3)
 
     def test_keeps_only_allowed_canonical_wards_and_requires_coordinates(self):
         source = pd.DataFrame(

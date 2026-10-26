@@ -38,11 +38,15 @@ def load_final_to_warehouse() -> dict[str, int]:
     print(
         "Gold load complete: "
         f"source={stats['source_rows']}, "
-        f"filtered_price_size={stats['rejected_invalid_or_zero_price_size']}, "
+        f"filtered_price_size={stats['rejected_invalid_or_non_positive_price_size']}, "
         f"filtered_category={stats['rejected_unsupported_category']}, "
         f"filtered_ward={stats['rejected_unsupported_or_null_ward']}, "
         f"filtered_coordinates={stats['rejected_missing_or_invalid_coordinates']}, "
+        f"filtered_outside_danang={stats['rejected_outside_coordinate_bounds']}, "
+        f"filtered_rental_room_over_price={stats['rejected_rental_room_over_price_limit']}, "
+        f"rooms_imputed_with_mode={stats['rooms_imputed_with_mode']}, "
         f"filtered_invalid_rooms={stats['rejected_invalid_rooms']}, "
+        f"filtered_rooms_over_limit={stats['rejected_rooms_over_limit']}, "
         f"loaded={loaded_rows}."
     )
     return stats

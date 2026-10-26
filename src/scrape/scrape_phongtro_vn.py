@@ -81,12 +81,16 @@ FURNISHING_NEGATIVE_PATTERNS = [
     "chưa có nội thất", "không có sẵn nội thất", "không trang bị nội thất",
 ]
 
+FURNISHING_LUXURY_PATTERNS = [
+    "nội thất cao cấp", "nội thất sang trọng",
+    "trang bị nội thất cao cấp", "full nội thất cao cấp", "tiện nghi cao cấp",
+]
+
 FURNISHING_FULL_PATTERNS = [
     "đầy đủ nội thất", "đầy đủ tiện nghi", "full nội thất", "full tiện nghi",
     "nội thất đầy đủ", "tiện nghi đầy đủ", "full nt", "fullnoithat",
     "nội thất full", "nội thất và tiện nghi đầy đủ", "tiện nghi và nội thất đầy đủ",
-    "nội thất cao cấp", "nội thất sang trọng", "trang bị đầy đủ nội thất",
-    "đầy đủ tiện nghi và nội thất", "full nội thất cao cấp",
+    "trang bị đầy đủ nội thất", "đầy đủ tiện nghi và nội thất", "Nội thất chỉnh chu",
 ]
 
 FURNISHING_BASIC_PATTERNS = [
@@ -137,6 +141,10 @@ def get_furnishing_status(soup, body_text, subject_text=""):
     for p in FURNISHING_NEGATIVE_PATTERNS:
         if p in combined_norm:
             return "Không nội thất"
+
+    for p in FURNISHING_LUXURY_PATTERNS:
+        if p in combined_norm:
+            return "Nội thất cao cấp"
 
     for p in FURNISHING_FULL_PATTERNS:
         if p in combined_norm:

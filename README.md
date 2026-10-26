@@ -120,7 +120,7 @@ Nhãn `flood_risk_label` biểu thị số năm trong hai mốc 2022/2025 có gh
 | Gold | PostgreSQL `gold` | Dataset curated hiện tại cho downstream consumer |
 | CSV export | `data/final/` | Bản xuất của `silver.rental_room`, UTF-8 BOM, không có cột index |
 
-Gold hiện là current-state theo khóa `(source, list_id)`, không lưu lịch sử thay đổi giá. Quy tắc transform hiện tại gồm lọc giá/diện tích không hợp lệ, chuẩn hóa category và số phòng, giới hạn ward hỗ trợ, loại tọa độ thiếu/không hợp lệ. Xem `src/warehouse/transform.py` và kiểm thử tương ứng để biết quy tắc chi tiết.
+Gold hiện là current-state theo khóa `(source, list_id)`, không lưu lịch sử thay đổi giá. Transform loại giá/diện tích không hợp lệ; chuẩn hóa category, ward và số phòng; chỉ giữ tọa độ trong bbox `[107.3000, 15.9167, 108.3333, 16.2333]` theo thứ tự `[min_lon, min_lat, max_lon, max_lat]`; giới hạn giá `Phòng trọ` ở 10 triệu; điền rooms chưa xác định bằng mode số phòng của căn hộ trước khi chỉ giữ `rooms <= 3`. Xem `src/warehouse/transform.py` và kiểm thử tương ứng để biết chi tiết.
 
 ## Thư mục chính
 

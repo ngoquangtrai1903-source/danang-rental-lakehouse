@@ -37,3 +37,7 @@ Thumbs.db
 /bronze_ops.sql
 *.log
 *.tmp
+notebooks/*.html
+notebooks/*.geojson
+*.geojson
+*.html

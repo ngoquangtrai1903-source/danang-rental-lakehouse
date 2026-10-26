@@ -119,5 +119,7 @@ GeoJSON đầu vào là file nguồn cần thiết và không nên loại khỏi
 
 - R2 là nơi lưu payload Bronze chính thức. PostgreSQL `ops` giữ batch/index/metadata, không giữ payload body.
 - Gold hiện là bảng current-state theo `(source, list_id)`, không phải lịch sử biến động giá.
+- Gold chỉ giữ tọa độ trong bbox Đà Nẵng `[107.3000, 15.9167, 108.3333, 16.2333]` (thứ tự `[min_lon, min_lat, max_lon, max_lat]`), bao gồm điểm nằm trên biên; giá `Phòng trọ` không vượt quá 10 triệu.
+- `rooms` được chuẩn hóa trước; “Không xác định” của căn hộ được điền bằng mode số phòng căn hộ hợp lệ trong tập còn lại sau các bộ lọc trước đó, nhưng trước giới hạn 3 phòng (nếu mode hòa, chọn giá trị nhỏ hơn). Sau đó chỉ giữ số phòng không vượt quá 3. Phòng trọ được chuẩn hóa thành `1`; nếu không có mode hợp lệ thì rooms chưa xác định bị loại.
 - Các thư mục `data/raw/`, `data/processed/`, `data/final/` và `reports/` chứa dữ liệu/đầu ra local và được `.gitignore` loại khỏi các file mới.
 - `.gitignore` không tự bỏ các file đã được Git theo dõi. Trước khi push, kiểm tra `git status --short`; nếu muốn bỏ dữ liệu/artifact cũ khỏi commit, cần chủ động bỏ tracking bằng `git rm --cached` sau khi rà soát thay đổi sẽ được stage. Lệnh này giữ bản local nhưng tạo thay đổi trong Git index.
