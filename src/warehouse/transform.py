@@ -23,6 +23,15 @@ WAREHOUSE_COLUMNS = [
     column for column in RENTAL_ROOM_COLUMNS if column not in EXCLUDED_COLUMNS
 ]
 FILTER_COLUMNS = ("price_vnd", "size_m2")
+SIZE_IMPUTATION_GROUP_COLUMNS = ("category_name", "rooms", "ward_name")
+RENTAL_ROOM_MAX_PRICE_VND = 10_000_000
+MAX_ROOM_COUNT = 3
+DA_NANG_COORDINATE_BOUNDS = {
+    "min_longitude": 107.3000,
+    "min_latitude": 15.9167,
+    "max_longitude": 108.3333,
+    "max_latitude": 16.2333,
+}
 CATEGORY_ALIASES = {
     "can ho": "Căn hộ/Chung cư",
     "can ho/chung cu": "Căn hộ/Chung cư",
@@ -111,8 +120,8 @@ def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]
     invalid_measurement = measurements.isna().any(axis=1) | ~np.isfinite(
         measurements
     ).all(axis=1)
-    zero_measurement = measurements.eq(0).any(axis=1)
-    rejected_mask = invalid_measurement | zero_measurement
+    non_positive_measurement = measurements.le(0).any(axis=1)
+    rejected_mask = invalid_measurement | non_positive_measurement
     rejected_measurement_rows = int(rejected_mask.sum())
     frame = frame.loc[~rejected_mask].copy()
 
@@ -137,13 +146,80 @@ def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]
     rejected_coordinate_rows = int(invalid_coordinates.sum())
     frame = frame.loc[~invalid_coordinates].copy()
 
+    outside_bounds = (
+        ~frame["longitude"].between(
+            DA_NANG_COORDINATE_BOUNDS["min_longitude"],
+            DA_NANG_COORDINATE_BOUNDS["max_longitude"],
+            inclusive="both",
+        )
+        | ~frame["latitude"].between(
+            DA_NANG_COORDINATE_BOUNDS["min_latitude"],
+            DA_NANG_COORDINATE_BOUNDS["max_latitude"],
+            inclusive="both",
+        )
+    )
+    rejected_outside_coordinate_bounds = int(outside_bounds.sum())
+    frame = frame.loc[~outside_bounds].copy()
+
+    expensive_rental_rooms = (
+        frame["category_name"].eq("Phòng trọ")
+        & frame["price_vnd"].gt(RENTAL_ROOM_MAX_PRICE_VND)
+    )
+    rejected_rental_room_over_price_limit = int(expensive_rental_rooms.sum())
+    frame = frame.loc[~expensive_rental_rooms].copy()
+
     rental_room_mask = frame["category_name"].eq("Phòng trọ")
     normalized_rooms = frame["rooms"].map(_normalize_room_count)
     normalized_rooms.loc[rental_room_mask] = "1"
-    rejected_room_mask = normalized_rooms.isna()
+
+    unknown_apartment_rooms = (
+        frame["category_name"].eq("Căn hộ/Chung cư")
+        & normalized_rooms.eq(UNKNOWN_ROOM_LABEL)
+    )
+    known_apartment_rooms = pd.to_numeric(
+        normalized_rooms.loc[
+            frame["category_name"].eq("Căn hộ/Chung cư")
+            & normalized_rooms.ne(UNKNOWN_ROOM_LABEL)
+        ],
+        errors="coerce",
+    ).dropna()
+    room_count_modes = known_apartment_rooms.mode()
+    rooms_imputed_with_mode = 0
+    if not room_count_modes.empty:
+        mode_room_count = str(int(room_count_modes.iloc[0]))
+        rooms_imputed_with_mode = int(unknown_apartment_rooms.sum())
+        normalized_rooms.loc[unknown_apartment_rooms] = mode_room_count
+
+    rejected_room_mask = normalized_rooms.isna() | normalized_rooms.eq(
+        UNKNOWN_ROOM_LABEL
+    )
     rejected_room_rows = int(rejected_room_mask.sum())
     frame = frame.loc[~rejected_room_mask].copy()
     frame["rooms"] = normalized_rooms.loc[~rejected_room_mask]
+
+    room_counts = pd.to_numeric(frame["rooms"], errors="coerce")
+    over_room_limit = room_counts.gt(MAX_ROOM_COUNT)
+    rejected_rooms_over_limit = int(over_room_limit.sum())
+    frame = frame.loc[~over_room_limit].copy()
+
+    # To enable this alternative, allow zero size_m2 through the <= 0 filter
+    # above, then uncomment this group-median imputation block.
+    sizes_imputed_by_group_median = 0
+    # zero_size = frame["size_m2"].eq(0)
+    # positive_sizes = frame["size_m2"].where(frame["size_m2"].gt(0))
+    # grouped_size_medians = (
+    #     frame.assign(_positive_size_m2=positive_sizes)
+    #     .groupby(list(SIZE_IMPUTATION_GROUP_COLUMNS))["_positive_size_m2"]
+    #     .transform("median")
+    # )
+    # size_median_available = zero_size & grouped_size_medians.notna()
+    # sizes_imputed_by_group_median = int(size_median_available.sum())
+    # frame.loc[size_median_available, "size_m2"] = grouped_size_medians.loc[
+    #     size_median_available
+    # ]
+    # rejected_unimputable_sizes = int((zero_size & ~size_median_available).sum())
+    # rejected_measurement_rows += rejected_unimputable_sizes
+    # frame = frame.loc[~frame["size_m2"].eq(0)].copy()
 
     invalid_key = (
         frame["source"].isna()
@@ -171,11 +247,16 @@ def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]
 
     stats = {
         "source_rows": len(df),
-        "rejected_invalid_or_zero_price_size": rejected_measurement_rows,
+        "rejected_invalid_or_non_positive_price_size": rejected_measurement_rows,
         "rejected_unsupported_category": rejected_category_rows,
         "rejected_unsupported_or_null_ward": rejected_ward_rows,
         "rejected_missing_or_invalid_coordinates": rejected_coordinate_rows,
+        "rejected_outside_coordinate_bounds": rejected_outside_coordinate_bounds,
+        "rejected_rental_room_over_price_limit": rejected_rental_room_over_price_limit,
+        "size_m2_imputed_by_group_median": sizes_imputed_by_group_median,
         "rejected_invalid_rooms": rejected_room_rows,
+        "rooms_imputed_with_mode": rooms_imputed_with_mode,
+        "rejected_rooms_over_limit": rejected_rooms_over_limit,
         "loaded_rows": len(frame),
     }
     return frame, stats

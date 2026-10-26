@@ -16,6 +16,14 @@ FURNISHING_NEGATIVE_PATTERNS = [
     "không trang bị nội thất",
 ]
 
+FURNISHING_LUXURY_PATTERNS = [
+    "nội thất cao cấp",
+    "nội thất sang trọng",
+    "trang bị nội thất cao cấp",
+    "full nội thất cao cấp",
+    "tiện nghi cao cấp",
+]
+
 FURNISHING_FULL_PATTERNS = [
     "đầy đủ nội thất",
     "đầy đủ tiện nghi",
@@ -28,12 +36,10 @@ FURNISHING_FULL_PATTERNS = [
     "nội thất full",
     "nội thất và tiện nghi đầy đủ",
     "tiện nghi và nội thất đầy đủ",
-    "nội thất cao cấp",
-    "nội thất sang trọng",
     "trang bị đầy đủ nội thất",
     "đầy đủ tiện nghi và nội thất",
-    "full nội thất cao cấp",
     "đầy đủ",
+    "Nội thất chỉnh chu",
 ]
 
 FURNISHING_BASIC_PATTERNS = [
@@ -105,6 +111,10 @@ def infer_furnishing_status(subject_text: str = "", body_text: str = "") -> str 
     for pattern in FURNISHING_NEGATIVE_PATTERNS:
         if pattern in combined_norm:
             return "Không nội thất"
+
+    for pattern in FURNISHING_LUXURY_PATTERNS:
+        if pattern in combined_norm:
+            return "Nội thất cao cấp"
 
     for pattern in FURNISHING_FULL_PATTERNS:
         if pattern in combined_norm:
