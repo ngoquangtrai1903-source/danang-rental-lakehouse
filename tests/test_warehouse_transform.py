@@ -411,16 +411,22 @@ class WarehouseTransformTests(unittest.TestCase):
         self.assertEqual(stats["rejected_missing_or_invalid_coordinates"], 4)
         self.assertEqual(stats["loaded_rows"], 2)
 
-    def test_rejects_missing_natural_keys_and_duplicate_keys(self):
+    def test_rejects_missing_natural_keys_but_preserves_duplicate_keys(self):
         missing_key = pd.DataFrame([make_warehouse_source(source=None)])
         with self.assertRaisesRegex(ValueError, "source/list_id"):
             transform_lake_final(missing_key)
 
         duplicate_keys = pd.DataFrame(
-            [make_warehouse_source(), make_warehouse_source()]
+            [
+                make_warehouse_source(subject="Listing A"),
+                make_warehouse_source(subject="Listing B"),
+            ]
         )
-        with self.assertRaisesRegex(ValueError, "duplicate"):
-            transform_lake_final(duplicate_keys)
+        transformed, stats = transform_lake_final(duplicate_keys)
+
+        self.assertEqual(len(transformed), 2)
+        self.assertEqual(transformed["list_id"].tolist(), ["listing-1", "listing-1"])
+        self.assertEqual(stats["loaded_rows"], 2)
 
     def test_requires_complete_warehouse_source_columns(self):
         source = pd.DataFrame([make_warehouse_source()]).drop(columns=["size_m2"])

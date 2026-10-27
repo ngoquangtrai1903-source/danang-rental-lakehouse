@@ -102,7 +102,7 @@ data/
 
 ### Mức hiện tại: curated current-state table
 
-Warehouse không nhận `final.rental_room` như một bảng đã là Warehouse. Loader đọc Lake final, kiểm tra contract/chất lượng, bỏ trường văn bản/định danh không cần cho đích, lọc giá/diện tích không hợp lệ theo quy tắc đã chốt, rồi nạp current-state vào `dw.rental_room_current` ở database riêng. Bảng v1 giữ grain một dòng mỗi `(source, list_id)` và các thuộc tính phân tích trong một bảng phẳng để đáp ứng phạm vi yêu cầu hiện tại. Nạp lại là full refresh nguyên tử; không lưu lịch sử giá.
+Warehouse không nhận `final.rental_room` như một bảng đã là Warehouse. Loader đọc Lake final, kiểm tra contract/chất lượng, bỏ trường văn bản/định danh không cần cho đích, lọc giá/diện tích không hợp lệ theo quy tắc đã chốt, rồi nạp current-state vào `dw.rental_room_current` ở database riêng. Theo thiết kế ban đầu, bảng v1 dùng grain một dòng mỗi `(source, list_id)` và các thuộc tính phân tích trong một bảng phẳng để đáp ứng phạm vi yêu cầu. Nạp lại là full refresh nguyên tử; không lưu lịch sử giá. Pipeline hiện tại khử tin trùng ở bước merge theo cặp `subject`/`body` sau khi gộp khoảng trắng và chuyển về chữ thường Unicode; warehouse transform không khử trùng lặp.
 
 ### Hướng mở rộng: dimensional warehouse
 
@@ -120,7 +120,7 @@ Warehouse phải giữ khóa nguồn tự nhiên (`source`, `list_id`) để tra
 
 ### Lịch sử giá và trạng thái tin: lựa chọn cần định nghĩa
 
-Lake hiện không bảo đảm có lịch sử các lần thay đổi giá của cùng một tin: raw đang tích lũy theo khóa `(source, list_id)` và merge giữ một bản ghi; final được rebuild. Vì vậy không thể tạo fact lịch sử giá đáng tin chỉ từ bảng final hiện có.
+Lake hiện không bảo đảm có lịch sử các lần thay đổi giá của cùng một tin: raw đang tích lũy theo khóa `(source, list_id)`, bước merge còn gộp các tin trùng nội dung theo `subject`/`body` đã chuẩn hóa, và final được rebuild. Vì vậy không thể tạo fact lịch sử giá đáng tin chỉ từ bảng final hiện có.
 
 - **Nếu mục tiêu trước mắt là dashboard trạng thái mới nhất**: bắt đầu bằng `fact_rental_listing_current`; khi loader chạy lại, cập nhật bản ghi theo `(source, list_id)`.
 - **Nếu cần phân tích biến động giá/tin theo thời gian**: phải định nghĩa snapshot grain (mỗi listing mỗi lần scrape/ngày), lưu observation history tại Lake hoặc ghi snapshot bất biến vào Warehouse. Khi đó fact sẽ là `fact_rental_listing_snapshot`, với unique key phù hợp gồm listing và batch/snapshot time.
@@ -196,9 +196,9 @@ ETL phải idempotent: chạy lại cùng batch không tạo duplicate và khôn
 - Nạp dimensions trước, sau đó fact current-state và mart.
 - Lưu audit counts và trạng thái batch.
 
-**Gate:** tổng dòng nguồn = accepted + rejected; natural key không duplicate; mọi rejects có lý do; rollback không làm hỏng batch đã publish.
+**Gate:** tổng dòng nguồn = accepted + rejected; mọi rejects có lý do; kiểm tra tính tương thích giữa dữ liệu và ràng buộc khóa đích; rollback không làm hỏng batch đã publish.
 
-**Trạng thái:** đã hoàn thành phiên bản đầu với bảng phẳng `dw.rental_room_current`, lọc `price_vnd`/`size_m2` NULL hoặc 0, chuẩn hóa category chỉ còn `Phòng trọ`/`Căn hộ/Chung cư`, lọc ward theo allowlist 12 phường Đà Nẵng, loại tọa độ NULL/không hợp lệ, gán `rooms = "1"` cho category `Phòng trọ`, chuẩn hóa `rooms` có hậu tố `PN` thành số cho căn hộ, giữ nhãn `"Không xác định"` cho căn hộ thiếu số phòng và loại giá trị phòng căn hộ không phải số như `nhiều hơn 10 PN`, khóa tự nhiên, kiểm tra trùng khóa và transactional full refresh. Bảng audit chi tiết, staging riêng và star schema vẫn là phần mở rộng.
+**Trạng thái:** đã hoàn thành phiên bản đầu với bảng phẳng `dw.rental_room_current`, lọc `price_vnd`/`size_m2` NULL hoặc 0, chuẩn hóa category chỉ còn `Phòng trọ`/`Căn hộ/Chung cư`, lọc ward theo allowlist 12 phường Đà Nẵng, loại tọa độ NULL/không hợp lệ, gán `rooms = "1"` cho category `Phòng trọ`, chuẩn hóa `rooms` có hậu tố `PN` thành số cho căn hộ, giữ nhãn `"Không xác định"` cho căn hộ thiếu số phòng và loại giá trị phòng căn hộ không phải số như `nhiều hơn 10 PN`. Transform kiểm tra khóa tự nhiên bị thiếu nhưng không loại hoặc từ chối các dòng trùng khóa; ràng buộc khóa của bảng đích vẫn có thể từ chối khi nạp. Bảng audit chi tiết, staging riêng và star schema vẫn là phần mở rộng.
 
 ### Phase 3 — Orchestration và vận hành
 

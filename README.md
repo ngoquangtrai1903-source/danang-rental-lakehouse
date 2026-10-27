@@ -14,7 +14,7 @@ Scrapers ──► Cloudflare R2 (Bronze JSONL + manifest)
                  ▼
 Replay payloads ─► PostgreSQL silver.listings
                  │
-                 ├── merge/deduplicate ─► silver.merged
+                 ├── merge/deduplicate by lowercase subject/body ─► silver.merged
                  ├── geocode ───────────► silver.geocoded + silver.geocode_report
                  ├── spatial + flood ───► silver.spatial
                  ├── text features ─────► silver.rental_room
@@ -23,7 +23,7 @@ Replay payloads ─► PostgreSQL silver.listings
 silver.rental_room ── export ──► data/final/rental_room.csv
 ```
 
-Chạy `python main.py --step all` theo thứ tự: **scrape → replay/merge → geocode → spatial → flood → text → Gold → export CSV**. Payload nguồn được lưu thành JSONL bất biến trên R2; PostgreSQL lưu index/ledger Bronze cùng các lớp Silver/Gold. Merge replay toàn bộ payload đã index, nên có thể áp dụng parser mới lên dữ liệu Bronze đã lưu.
+Chạy `python main.py --step all` theo thứ tự: **scrape → replay/merge → geocode → spatial → flood → text → Gold → export CSV**. Payload nguồn được lưu thành JSONL bất biến trên R2; PostgreSQL lưu index/ledger Bronze cùng các lớp Silver/Gold. Merge replay toàn bộ payload đã index, nên có thể áp dụng parser mới lên dữ liệu Bronze đã lưu. Tại bước merge, tin trùng được nhận diện bằng cặp `subject`/`body` sau khi gộp khoảng trắng thừa và chuyển về chữ thường Unicode; chỉ so sánh khi cả hai trường có nội dung và giữ bản ghi đầu tiên.
 
 Chi tiết từng bước, điều kiện chạy lại và đầu ra được mô tả trong [DATA_PIPELINE.md](./DATA_PIPELINE.md). [MIGRATION_PLAN_R2_POSTGRES.md](./MIGRATION_PLAN_R2_POSTGRES.md) là hồ sơ quyết định migration; [DATA_LAKE_WAREHOUSE_IMPLEMENTATION_PLAN.md](./DATA_LAKE_WAREHOUSE_IMPLEMENTATION_PLAN.md) là tài liệu lịch sử về phương án SQL Server cũ.
 
@@ -120,7 +120,7 @@ Nhãn `flood_risk_label` biểu thị số năm trong hai mốc 2022/2025 có gh
 | Gold | PostgreSQL `gold` | Dataset curated hiện tại cho downstream consumer |
 | CSV export | `data/final/` | Bản xuất của `silver.rental_room`, UTF-8 BOM, không có cột index |
 
-Gold hiện là current-state theo khóa `(source, list_id)`, không lưu lịch sử thay đổi giá. Transform loại giá/diện tích không hợp lệ; chuẩn hóa category, ward và số phòng; chỉ giữ tọa độ trong bbox `[107.3000, 15.9167, 108.3333, 16.2333]` theo thứ tự `[min_lon, min_lat, max_lon, max_lat]`; giới hạn giá `Phòng trọ` ở 10 triệu; điền rooms chưa xác định bằng mode số phòng của căn hộ trước khi chỉ giữ `rooms <= 3`. Xem `src/warehouse/transform.py` và kiểm thử tương ứng để biết chi tiết.
+Gold hiện là current-state, không lưu lịch sử thay đổi giá. Warehouse transform không loại dòng trùng; bảng `gold.rental_room` vẫn áp dụng khóa chính `(source, list_id)`, do đó các dòng trùng khóa tự nhiên có thể làm nạp Gold thất bại. Transform loại giá/diện tích không hợp lệ; chuẩn hóa category, ward và số phòng; chỉ giữ tọa độ trong bbox `[107.3000, 15.9167, 108.3333, 16.2333]` theo thứ tự `[min_lon, min_lat, max_lon, max_lat]`; giới hạn giá `Phòng trọ` ở 10 triệu; điền rooms chưa xác định bằng mode số phòng của căn hộ trước khi chỉ giữ `rooms <= 3`. Xem `src/warehouse/transform.py` và kiểm thử tương ứng để biết chi tiết.
 
 ## Thư mục chính
 

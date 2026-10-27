@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Merge & Deduplication Script
-Gộp dữ liệu từ silver.listings (PostgreSQL) và dedup theo (source, list_id).
+Gộp dữ liệu từ silver.listings (PostgreSQL) và dedup theo nội dung tin đăng.
 """
 
 from __future__ import annotations
@@ -25,6 +25,33 @@ from src.scrape.furnishing_fallback import (
 )
 
 NHATOT_SOURCES = {"nhatot_canho", "nhatot_phongtro"}
+
+
+def _normalize_listing_text(value: object) -> str:
+    if value is None or pd.isna(value):
+        return ""
+    return " ".join(str(value).split()).casefold()
+
+
+def deduplicate_listings(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep the first listing for each non-empty normalized subject/body pair."""
+    required_columns = {"subject", "body"}
+    missing_columns = required_columns.difference(df.columns)
+    if missing_columns:
+        raise ValueError(
+            "Cannot deduplicate listings by (subject, body); missing columns: "
+            + ", ".join(sorted(missing_columns))
+        )
+
+    comparison_keys = pd.DataFrame(
+        {
+            "subject": df["subject"].map(_normalize_listing_text).to_numpy(),
+            "body": df["body"].map(_normalize_listing_text).to_numpy(),
+        }
+    )
+    complete_keys = comparison_keys.ne("").all(axis=1)
+    duplicate_rows = complete_keys & comparison_keys.duplicated(keep="first")
+    return df.iloc[~duplicate_rows.to_numpy()].copy()
 
 
 def enrich_nhatot_furnishing_status(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -117,13 +144,10 @@ def merge_datasets() -> pd.DataFrame | None:
 
     print("\n🔄 Đang deduplicate...")
     original_count = len(merged_df)
-    if "list_id" not in merged_df.columns:
-        print("⚠️ Không tìm thấy cột 'list_id'. Bỏ qua deduplication.")
-    else:
-        merged_df = merged_df.drop_duplicates(subset=["source", "list_id"], keep="first")
-        dedup_count = len(merged_df)
-        print(f"   ✅ Đã loại bỏ {original_count - dedup_count} dòng trùng lặp")
-        print(f"   ✅ Còn lại {dedup_count} dòng duy nhất")
+    merged_df = deduplicate_listings(merged_df)
+    dedup_count = len(merged_df)
+    print(f"   ✅ Đã loại bỏ {original_count - dedup_count} dòng trùng lặp")
+    print(f"   ✅ Còn lại {dedup_count} dòng duy nhất")
 
     processed_repo.rebuild_merged(merged_df)
     print(f"\n✅ Đã lưu silver.merged")

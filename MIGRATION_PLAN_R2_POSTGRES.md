@@ -141,7 +141,7 @@ Ledger chỉ lưu metadata đủ để deduplicate và truy vết; không sao ch
 
 ### `silver` — dữ liệu chuẩn hoá và enrichment
 
-Grain chính: một bản ghi cho mỗi `(source, list_id)`.
+`silver.listings` được lưu theo `(source, list_id)`. Bước merge tạo `silver.merged` và loại tin đăng trùng giữa các nguồn theo cặp `subject`/`body` sau khi gộp khoảng trắng và chuyển về chữ thường Unicode; chỉ so sánh khi cả hai trường có nội dung và giữ bản ghi đầu tiên.
 
 - `silver.listing`: kết quả parse theo các cột chuẩn hiện tại, gồm subject/body nếu cần cho feature engineering.
 - `silver.listing_location`: kết quả địa chỉ/toạ độ, trạng thái geocode, score và nguồn geocode nếu cần tách vòng đời geocode.
@@ -161,7 +161,7 @@ Chuyển đổi đầu tiên nên giữ tên trường và quy tắc dữ liệu
 
 ### `gold` — hợp đồng tiêu thụ
 
-- `gold.rental_listing_current`: một dòng cho mỗi `(source, list_id)`, curated cho FastAPI và truy vấn ứng dụng.
+- `gold.rental_listing_current`: current-state curated cho FastAPI và truy vấn ứng dụng. Khóa `(source, list_id)` vẫn có thể được dùng làm khóa đích; việc khử tin trùng nội dung diễn ra ở bước merge, không phải warehouse transform.
 - `gold.rental_listing_features`: tập feature ổn định cho training/inference; định nghĩa rõ target, feature time, NULL, loại dữ liệu và leakage.
 - API nên đọc view/table Gold bằng DB role chỉ đọc; không cho request path truy vấn trực tiếp Bronze hoặc tự chạy ETL.
 - Gold cần tách version/contract của API khỏi tên bảng Silver nội bộ; có thể dùng view versioned khi thay schema.

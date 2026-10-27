@@ -233,18 +233,6 @@ def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]
             "source/list_id natural key."
         )
 
-    duplicate_key = frame.duplicated(subset=["source", "list_id"], keep=False)
-    if duplicate_key.any():
-        examples = (
-            frame.loc[duplicate_key, ["source", "list_id"]]
-            .head(5)
-            .to_dict("records")
-        )
-        raise ValueError(
-            "Warehouse input has duplicate (source, list_id) keys; "
-            f"examples: {examples}"
-        )
-
     stats = {
         "source_rows": len(df),
         "rejected_invalid_or_non_positive_price_size": rejected_measurement_rows,

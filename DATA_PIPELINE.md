@@ -18,7 +18,7 @@ R2 Bronze: JSONL bất biến + manifest/checksum
           ▼
 Replay toàn bộ payload ──► silver.listings
           │
-          ├─ normalize + deduplicate ─► silver.merged
+          ├─ normalize + deduplicate by lowercase subject/body ─► silver.merged
           ├─ geocode ─────────────────► silver.geocoded
           │                             silver.geocode_report
           ├─ spatial features ─────────► silver.spatial
@@ -33,7 +33,7 @@ Replay toàn bộ payload ──► silver.listings
 | Thứ tự | Bước CLI | Xử lý | Đầu ra |
 |---:|---|---|---|
 | 1 | `scrape` | Crawl bốn nguồn; chỉ lưu payload mới theo `(source, list_id)` | R2 Bronze JSONL + manifest; index trong PostgreSQL `ops` |
-| 2 | `merge` | Đọc/replay toàn bộ payload đã index bằng parser hiện tại, chuẩn hóa và loại trùng | `silver.listings`, `silver.merged` |
+| 2 | `merge` | Đọc/replay toàn bộ payload đã index bằng parser hiện tại, chuẩn hóa và loại tin trùng theo cặp subject/body sau khi gộp khoảng trắng, chuyển chữ thường Unicode | `silver.listings`, `silver.merged` |
 | 3 | `geocode` | Bổ sung tọa độ cho listing | `silver.geocoded`, `silver.geocode_report` |
 | 4 | `spatial` | Tính các đặc trưng khoảng cách/không gian | `silver.spatial` |
 | 5 | `flood` | Gán trạng thái ngập dựa trên GeoJSON hai mốc năm | Cập nhật `silver.spatial` |
@@ -92,6 +92,8 @@ Lưu ý về chạy riêng:
 - `--step warehouse` chỉ dựng Gold từ `silver.rental_room` hiện có; `--step export` chỉ xuất CSV từ Silver, không dựng Gold.
 - `main.py` hiện không có bước huấn luyện model hoặc các tuỳ chọn `--train`.
 
+Ở bước `merge`, tiêu chí loại tin trùng là cặp `subject` và `body` sau khi gộp các khoảng trắng liên tiếp và chuyển về chữ thường Unicode; không dùng `source` hoặc `list_id` trong tiêu chí này. Chỉ các dòng có cả hai nội dung sau chuẩn hóa mới được so sánh; dòng thiếu một trong hai được giữ lại. Nếu trùng, giữ dòng xuất hiện trước và không sửa nội dung gốc.
+
 ## Dữ liệu flood
 
 Mặc định pipeline đọc:
@@ -118,7 +120,7 @@ GeoJSON đầu vào là file nguồn cần thiết và không nên loại khỏi
 ## Lưu ý dữ liệu và Git
 
 - R2 là nơi lưu payload Bronze chính thức. PostgreSQL `ops` giữ batch/index/metadata, không giữ payload body.
-- Gold hiện là bảng current-state theo `(source, list_id)`, không phải lịch sử biến động giá.
+- Gold hiện là bảng current-state, không phải lịch sử biến động giá. Transform không loại dòng trùng; tuy nhiên bảng `gold.rental_room` vẫn có khóa chính `(source, list_id)`, nên dữ liệu trùng khóa tự nhiên có thể khiến thao tác nạp Gold thất bại.
 - Gold chỉ giữ tọa độ trong bbox Đà Nẵng `[107.3000, 15.9167, 108.3333, 16.2333]` (thứ tự `[min_lon, min_lat, max_lon, max_lat]`), bao gồm điểm nằm trên biên; giá `Phòng trọ` không vượt quá 10 triệu.
 - `rooms` được chuẩn hóa trước; “Không xác định” của căn hộ được điền bằng mode số phòng căn hộ hợp lệ trong tập còn lại sau các bộ lọc trước đó, nhưng trước giới hạn 3 phòng (nếu mode hòa, chọn giá trị nhỏ hơn). Sau đó chỉ giữ số phòng không vượt quá 3. Phòng trọ được chuẩn hóa thành `1`; nếu không có mode hợp lệ thì rooms chưa xác định bị loại.
 - Các thư mục `data/raw/`, `data/processed/`, `data/final/` và `reports/` chứa dữ liệu/đầu ra local và được `.gitignore` loại khỏi các file mới.
