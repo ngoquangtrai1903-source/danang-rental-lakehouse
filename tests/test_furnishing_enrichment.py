@@ -47,6 +47,32 @@ class FurnishingEnrichmentTests(unittest.TestCase):
         self.assertEqual(enriched["other"].tolist(), [1, 2, 3, 4])
         self.assertEqual(source.loc[0, "furnishing_status"], "Không xác định")
 
+    def test_enriches_historical_no_furniture_status_when_text_has_evidence(self):
+        source = pd.DataFrame(
+            {
+                "source": ["nhatot_canho", "nhatot_phongtro", "phongtro123"],
+                "furnishing_status": [
+                    "Không nội thất",
+                    "Không nội thất",
+                    "Không nội thất",
+                ],
+                "subject": [
+                    "Căn hộ full nội thất",
+                    "Phòng trọ nhà trống",
+                    "Phòng trọ full nội thất",
+                ],
+                "body": ["", "", ""],
+            }
+        )
+
+        enriched, updated_count = enrich_nhatot_furnishing_status(source)
+
+        self.assertEqual(updated_count, 2)
+        self.assertEqual(
+            enriched["furnishing_status"].tolist(),
+            ["Đầy đủ nội thất", "Không nội thất", "Không nội thất"],
+        )
+
     def test_keeps_unknown_when_listing_text_has_no_evidence(self):
         source = pd.DataFrame(
             {

@@ -18,7 +18,7 @@ R2 Bronze: JSONL bất biến + manifest/checksum
           ▼
 Replay toàn bộ payload ──► silver.listings
           │
-          ├─ normalize + deduplicate by lowercase subject/body ─► silver.merged
+          ├─ normalize + deduplicate by lowercase body ─► silver.merged
           ├─ geocode ─────────────────► silver.geocoded
           │                             silver.geocode_report
           ├─ spatial features ─────────► silver.spatial
@@ -33,7 +33,7 @@ Replay toàn bộ payload ──► silver.listings
 | Thứ tự | Bước CLI | Xử lý | Đầu ra |
 |---:|---|---|---|
 | 1 | `scrape` | Crawl bốn nguồn; chỉ lưu payload mới theo `(source, list_id)` | R2 Bronze JSONL + manifest; index trong PostgreSQL `ops` |
-| 2 | `merge` | Đọc/replay toàn bộ payload đã index bằng parser hiện tại, chuẩn hóa và loại tin trùng theo cặp subject/body sau khi gộp khoảng trắng, chuyển chữ thường Unicode | `silver.listings`, `silver.merged` |
+| 2 | `merge` | Đọc/replay toàn bộ payload đã index bằng parser hiện tại, chuẩn hóa body và loại tin trùng theo nội dung body sau khi gộp khoảng trắng, chuyển chữ thường Unicode | `silver.listings`, `silver.merged` |
 | 3 | `geocode` | Bổ sung tọa độ cho listing | `silver.geocoded`, `silver.geocode_report` |
 | 4 | `spatial` | Tính các đặc trưng khoảng cách/không gian | `silver.spatial` |
 | 5 | `flood` | Gán trạng thái ngập dựa trên GeoJSON hai mốc năm | Cập nhật `silver.spatial` |
@@ -92,7 +92,7 @@ Lưu ý về chạy riêng:
 - `--step warehouse` chỉ dựng Gold từ `silver.rental_room` hiện có; `--step export` chỉ xuất CSV từ Silver, không dựng Gold.
 - `main.py` hiện không có bước huấn luyện model hoặc các tuỳ chọn `--train`.
 
-Ở bước `merge`, tiêu chí loại tin trùng là cặp `subject` và `body` sau khi gộp các khoảng trắng liên tiếp và chuyển về chữ thường Unicode; không dùng `source` hoặc `list_id` trong tiêu chí này. Chỉ các dòng có cả hai nội dung sau chuẩn hóa mới được so sánh; dòng thiếu một trong hai được giữ lại. Nếu trùng, giữ dòng xuất hiện trước và không sửa nội dung gốc.
+Ở bước `merge`, tiêu chí loại tin trùng chỉ là `body` sau khi gộp các khoảng trắng liên tiếp và chuyển về chữ thường Unicode; không dùng `subject`, `source` hoặc `list_id` trong tiêu chí này. Dòng thiếu body hoặc body rỗng sau chuẩn hóa được giữ lại. Nếu trùng, giữ dòng xuất hiện trước và không sửa nội dung gốc.
 
 ## Dữ liệu flood
 

@@ -14,7 +14,7 @@ Scrapers ──► Cloudflare R2 (Bronze JSONL + manifest)
                  ▼
 Replay payloads ─► PostgreSQL silver.listings
                  │
-                 ├── merge/deduplicate by lowercase subject/body ─► silver.merged
+                 ├── merge/deduplicate by lowercase body ─► silver.merged
                  ├── geocode ───────────► silver.geocoded + silver.geocode_report
                  ├── spatial + flood ───► silver.spatial
                  ├── text features ─────► silver.rental_room
@@ -23,7 +23,7 @@ Replay payloads ─► PostgreSQL silver.listings
 silver.rental_room ── export ──► data/final/rental_room.csv
 ```
 
-Chạy `python main.py --step all` theo thứ tự: **scrape → replay/merge → geocode → spatial → flood → text → Gold → export CSV**. Payload nguồn được lưu thành JSONL bất biến trên R2; PostgreSQL lưu index/ledger Bronze cùng các lớp Silver/Gold. Merge replay toàn bộ payload đã index, nên có thể áp dụng parser mới lên dữ liệu Bronze đã lưu. Tại bước merge, tin trùng được nhận diện bằng cặp `subject`/`body` sau khi gộp khoảng trắng thừa và chuyển về chữ thường Unicode; chỉ so sánh khi cả hai trường có nội dung và giữ bản ghi đầu tiên.
+Chạy `python main.py --step all` theo thứ tự: **scrape → replay/merge → geocode → spatial → flood → text → Gold → export CSV**. Payload nguồn được lưu thành JSONL bất biến trên R2; PostgreSQL lưu index/ledger Bronze cùng các lớp Silver/Gold. Merge replay toàn bộ payload đã index, nên có thể áp dụng parser mới lên dữ liệu Bronze đã lưu. Tại bước merge, tin trùng được nhận diện chỉ bằng `body` sau khi gộp khoảng trắng thừa và chuyển về chữ thường Unicode; body rỗng được giữ lại và nếu trùng thì giữ bản ghi đầu tiên.
 
 Chi tiết từng bước, điều kiện chạy lại và đầu ra được mô tả trong [DATA_PIPELINE.md](./DATA_PIPELINE.md). [MIGRATION_PLAN_R2_POSTGRES.md](./MIGRATION_PLAN_R2_POSTGRES.md) là hồ sơ quyết định migration; [DATA_LAKE_WAREHOUSE_IMPLEMENTATION_PLAN.md](./DATA_LAKE_WAREHOUSE_IMPLEMENTATION_PLAN.md) là tài liệu lịch sử về phương án SQL Server cũ.
 

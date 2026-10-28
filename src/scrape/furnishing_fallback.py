@@ -88,7 +88,15 @@ FURNITURE_ITEM_KEYWORDS = [
     "bình nước nóng",
 ]
 
-UNKNOWN_FURNISHING_VALUES = {"", "không xác định", "unknown", "null", "none"}
+UNKNOWN_FURNISHING_VALUES = {
+    "",
+    "không xác định",
+    "không nội thất",
+    "nhà trống",
+    "unknown",
+    "null",
+    "none",
+}
 
 
 def is_unknown_furnishing_status(value: object) -> bool:

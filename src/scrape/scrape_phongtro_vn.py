@@ -91,6 +91,7 @@ FURNISHING_FULL_PATTERNS = [
     "nội thất đầy đủ", "tiện nghi đầy đủ", "full nt", "fullnoithat",
     "nội thất full", "nội thất và tiện nghi đầy đủ", "tiện nghi và nội thất đầy đủ",
     "trang bị đầy đủ nội thất", "đầy đủ tiện nghi và nội thất", "Nội thất chỉnh chu",
+    "full tiện ích",
 ]
 
 FURNISHING_BASIC_PATTERNS = [

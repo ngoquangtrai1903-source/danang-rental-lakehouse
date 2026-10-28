@@ -34,23 +34,18 @@ def _normalize_listing_text(value: object) -> str:
 
 
 def deduplicate_listings(df: pd.DataFrame) -> pd.DataFrame:
-    """Keep the first listing for each non-empty normalized subject/body pair."""
-    required_columns = {"subject", "body"}
+    """Keep the first listing for each non-empty normalized body."""
+    required_columns = {"body"}
     missing_columns = required_columns.difference(df.columns)
     if missing_columns:
         raise ValueError(
-            "Cannot deduplicate listings by (subject, body); missing columns: "
+            "Cannot deduplicate listings by body; missing columns: "
             + ", ".join(sorted(missing_columns))
         )
 
-    comparison_keys = pd.DataFrame(
-        {
-            "subject": df["subject"].map(_normalize_listing_text).to_numpy(),
-            "body": df["body"].map(_normalize_listing_text).to_numpy(),
-        }
-    )
-    complete_keys = comparison_keys.ne("").all(axis=1)
-    duplicate_rows = complete_keys & comparison_keys.duplicated(keep="first")
+    normalized_body = df["body"].map(_normalize_listing_text)
+    complete_keys = normalized_body.ne("")
+    duplicate_rows = complete_keys & normalized_body.duplicated(keep="first")
     return df.iloc[~duplicate_rows.to_numpy()].copy()
 
 

@@ -141,7 +141,7 @@ Ledger chỉ lưu metadata đủ để deduplicate và truy vết; không sao ch
 
 ### `silver` — dữ liệu chuẩn hoá và enrichment
 
-`silver.listings` được lưu theo `(source, list_id)`. Bước merge tạo `silver.merged` và loại tin đăng trùng giữa các nguồn theo cặp `subject`/`body` sau khi gộp khoảng trắng và chuyển về chữ thường Unicode; chỉ so sánh khi cả hai trường có nội dung và giữ bản ghi đầu tiên.
+`silver.listings` được lưu theo `(source, list_id)`. Bước merge tạo `silver.merged` và loại tin đăng trùng giữa các nguồn chỉ theo `body` sau khi gộp khoảng trắng và chuyển về chữ thường Unicode; body rỗng được giữ lại và nếu trùng thì giữ bản ghi đầu tiên.
 
 - `silver.listing`: kết quả parse theo các cột chuẩn hiện tại, gồm subject/body nếu cần cho feature engineering.
 - `silver.listing_location`: kết quả địa chỉ/toạ độ, trạng thái geocode, score và nguồn geocode nếu cần tách vòng đời geocode.

@@ -102,7 +102,7 @@ data/
 
 ### Mức hiện tại: curated current-state table
 
-Warehouse không nhận `final.rental_room` như một bảng đã là Warehouse. Loader đọc Lake final, kiểm tra contract/chất lượng, bỏ trường văn bản/định danh không cần cho đích, lọc giá/diện tích không hợp lệ theo quy tắc đã chốt, rồi nạp current-state vào `dw.rental_room_current` ở database riêng. Theo thiết kế ban đầu, bảng v1 dùng grain một dòng mỗi `(source, list_id)` và các thuộc tính phân tích trong một bảng phẳng để đáp ứng phạm vi yêu cầu. Nạp lại là full refresh nguyên tử; không lưu lịch sử giá. Pipeline hiện tại khử tin trùng ở bước merge theo cặp `subject`/`body` sau khi gộp khoảng trắng và chuyển về chữ thường Unicode; warehouse transform không khử trùng lặp.
+Warehouse không nhận `final.rental_room` như một bảng đã là Warehouse. Loader đọc Lake final, kiểm tra contract/chất lượng, bỏ trường văn bản/định danh không cần cho đích, lọc giá/diện tích không hợp lệ theo quy tắc đã chốt, rồi nạp current-state vào `dw.rental_room_current` ở database riêng. Theo thiết kế ban đầu, bảng v1 dùng grain một dòng mỗi `(source, list_id)` và các thuộc tính phân tích trong một bảng phẳng để đáp ứng phạm vi yêu cầu. Nạp lại là full refresh nguyên tử; không lưu lịch sử giá. Pipeline hiện tại khử tin trùng ở bước merge chỉ theo `body` sau khi gộp khoảng trắng và chuyển về chữ thường Unicode; warehouse transform không khử trùng lặp.
 
 ### Hướng mở rộng: dimensional warehouse
 
@@ -120,7 +120,7 @@ Warehouse phải giữ khóa nguồn tự nhiên (`source`, `list_id`) để tra
 
 ### Lịch sử giá và trạng thái tin: lựa chọn cần định nghĩa
 
-Lake hiện không bảo đảm có lịch sử các lần thay đổi giá của cùng một tin: raw đang tích lũy theo khóa `(source, list_id)`, bước merge còn gộp các tin trùng nội dung theo `subject`/`body` đã chuẩn hóa, và final được rebuild. Vì vậy không thể tạo fact lịch sử giá đáng tin chỉ từ bảng final hiện có.
+Lake hiện không bảo đảm có lịch sử các lần thay đổi giá của cùng một tin: raw đang tích lũy theo khóa `(source, list_id)`, bước merge còn gộp các tin trùng nội dung theo `body` đã chuẩn hóa, và final được rebuild. Vì vậy không thể tạo fact lịch sử giá đáng tin chỉ từ bảng final hiện có.
 
 - **Nếu mục tiêu trước mắt là dashboard trạng thái mới nhất**: bắt đầu bằng `fact_rental_listing_current`; khi loader chạy lại, cập nhật bản ghi theo `(source, list_id)`.
 - **Nếu cần phân tích biến động giá/tin theo thời gian**: phải định nghĩa snapshot grain (mỗi listing mỗi lần scrape/ngày), lưu observation history tại Lake hoặc ghi snapshot bất biến vào Warehouse. Khi đó fact sẽ là `fact_rental_listing_snapshot`, với unique key phù hợp gồm listing và batch/snapshot time.

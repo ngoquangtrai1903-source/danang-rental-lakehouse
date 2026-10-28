@@ -1,11 +1,18 @@
 import unittest
 
-from src.scrape.furnishing_fallback import infer_furnishing_status
+from src.scrape.furnishing_fallback import (
+    infer_furnishing_status,
+    is_unknown_furnishing_status,
+)
 from src.scrape.scrape_nhatot_canho import process_ad_data as process_apartment_ad
 from src.scrape.scrape_nhatot_phongtro import process_ad_data as process_room_ad
 
 
 class NhatotFurnishingFallbackTests(unittest.TestCase):
+    def test_no_furniture_status_is_eligible_for_text_fallback(self):
+        self.assertTrue(is_unknown_furnishing_status("Không nội thất"))
+        self.assertFalse(is_unknown_furnishing_status("Nội thất cơ bản"))
+
     def test_text_rules_prioritize_negative_then_full_and_basic_status(self):
         self.assertEqual(
             infer_furnishing_status(
@@ -62,8 +69,20 @@ class NhatotFurnishingFallbackTests(unittest.TestCase):
                 "body": "",
             }
         )
+        no_furniture = process_apartment_ad(
+            {
+                "feature_params": {
+                    "seo_structure": {
+                        "items": [{"id": "furnishing_sell", "value": "Không nội thất"}]
+                    }
+                },
+                "subject": "Căn hộ full nội thất",
+                "body": "",
+            }
+        )
 
         self.assertEqual(inferred["furnishing_status"], "Đầy đủ nội thất")
+        self.assertEqual(no_furniture["furnishing_status"], "Đầy đủ nội thất")
         self.assertEqual(inferred["subject"], "Căn hộ full nội thất")
         self.assertEqual(inferred["body"], "")
         self.assertEqual(api_value["furnishing_status"], "Nội thất cơ bản")
@@ -88,8 +107,18 @@ class NhatotFurnishingFallbackTests(unittest.TestCase):
                 "body": "",
             }
         )
+        no_furniture = process_room_ad(
+            {
+                "params": [
+                    {"id": "furnishing_rent", "value": "Không nội thất"}
+                ],
+                "subject": "Phòng trọ full nội thất",
+                "body": "",
+            }
+        )
 
         self.assertEqual(inferred["furnishing_status"], "Không nội thất")
+        self.assertEqual(no_furniture["furnishing_status"], "Đầy đủ nội thất")
         self.assertEqual(api_value["furnishing_status"], "Đầy đủ nội thất")
         self.assertEqual(inferred["subject"], "Phòng trọ nhà trống")
 
