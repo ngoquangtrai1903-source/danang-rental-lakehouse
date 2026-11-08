@@ -23,7 +23,7 @@ def make_warehouse_source(**overrides):
             "longitude": 108.2,
             "rooms": "2 PN",
             "subject": "subject to exclude",
-            "body": "body to exclude",
+            "body": "B" * 200,
             "url": "https://example.invalid/listing",
             "listing_type": "type to exclude",
             "scraped_at": "2026-10-09",
@@ -70,7 +70,8 @@ class WarehouseTransformTests(unittest.TestCase):
             ]
         )
         for column in EXCLUDED_COLUMNS:
-            source[column] = "must not be loaded"
+            if column != "body":
+                source[column] = "must not be loaded"
 
         transformed, stats = transform_lake_final(source)
 
@@ -87,6 +88,8 @@ class WarehouseTransformTests(unittest.TestCase):
             stats,
             {
                 "source_rows": 10,
+                "rejected_rental_body_length_under_100": 0,
+                "rejected_apartment_body_length_under_200": 0,
                 "rejected_invalid_or_non_positive_price_size": 6,
                 "rejected_unsupported_category": 2,
                 "rejected_unsupported_or_null_ward": 0,
@@ -410,6 +413,53 @@ class WarehouseTransformTests(unittest.TestCase):
         self.assertEqual(stats["rejected_unsupported_or_null_ward"], 3)
         self.assertEqual(stats["rejected_missing_or_invalid_coordinates"], 4)
         self.assertEqual(stats["loaded_rows"], 2)
+
+    def test_rejects_body_by_category_specific_minimum_length(self):
+        source = pd.DataFrame(
+            [
+                make_warehouse_source(
+                    list_id="rental-valid-100",
+                    category_name="Phòng trọ",
+                    body="B" * 100,
+                ),
+                make_warehouse_source(
+                    list_id="rental-short-99",
+                    category_name="Phòng trọ",
+                    body="B" * 99,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-valid-200",
+                    category_name="Căn hộ",
+                    body="B" * 200,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-short-199",
+                    category_name="Căn hộ/Chung cư",
+                    body="B" * 199,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-whitespace",
+                    category_name="Căn hộ",
+                    body="   ",
+                ),
+                make_warehouse_source(
+                    list_id="rental-null",
+                    category_name="Phòng trọ",
+                    body=None,
+                ),
+            ]
+        )
+
+        transformed, stats = transform_lake_final(source)
+
+        self.assertEqual(
+            transformed["list_id"].tolist(),
+            ["rental-valid-100", "apartment-valid-200"],
+        )
+        self.assertEqual(stats["rejected_rental_body_length_under_100"], 2)
+        self.assertEqual(stats["rejected_apartment_body_length_under_200"], 2)
+        self.assertEqual(stats["loaded_rows"], 2)
+        self.assertNotIn("body", transformed.columns)
 
     def test_rejects_missing_natural_keys_but_preserves_duplicate_keys(self):
         missing_key = pd.DataFrame([make_warehouse_source(source=None)])

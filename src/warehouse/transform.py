@@ -26,6 +26,8 @@ FILTER_COLUMNS = ("price_vnd", "size_m2")
 SIZE_IMPUTATION_GROUP_COLUMNS = ("category_name", "rooms", "ward_name")
 RENTAL_ROOM_MAX_PRICE_VND = 10_000_000
 MAX_ROOM_COUNT = 3
+RENTAL_BODY_MIN_LENGTH = 100
+APARTMENT_BODY_MIN_LENGTH = 200
 DA_NANG_COORDINATE_BOUNDS = {
     "min_longitude": 107.3000,
     "min_latitude": 15.9167,
@@ -105,7 +107,11 @@ def _normalize_ward(value: object) -> str | None:
 
 def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
     """Apply warehouse category, location, room-count, and measurement rules."""
-    missing = [column for column in WAREHOUSE_COLUMNS if column not in df.columns]
+    missing = [
+        column
+        for column in WAREHOUSE_COLUMNS + ["body"]
+        if column not in df.columns
+    ]
     if missing:
         raise KeyError(
             "Lake final source is missing required warehouse columns: "
@@ -113,6 +119,8 @@ def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]
         )
 
     frame = df[WAREHOUSE_COLUMNS].copy()
+    body_text = df["body"].astype("string").str.strip()
+
     for column in FILTER_COLUMNS:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
 
@@ -130,6 +138,25 @@ def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]
     rejected_category_rows = int(rejected_category_mask.sum())
     frame = frame.loc[~rejected_category_mask].copy()
     frame["category_name"] = normalized_categories.loc[~rejected_category_mask]
+
+    frame_body_lengths = body_text.loc[frame.index].str.len()
+    short_rental_body = (
+        frame["category_name"].eq("Phòng trọ")
+        & (
+            body_text.loc[frame.index].isna()
+            | frame_body_lengths.lt(RENTAL_BODY_MIN_LENGTH)
+        )
+    )
+    short_apartment_body = (
+        frame["category_name"].eq("Căn hộ/Chung cư")
+        & (
+            body_text.loc[frame.index].isna()
+            | frame_body_lengths.lt(APARTMENT_BODY_MIN_LENGTH)
+        )
+    )
+    rejected_rental_short_body_rows = int(short_rental_body.sum())
+    rejected_apartment_short_body_rows = int(short_apartment_body.sum())
+    frame = frame.loc[~(short_rental_body | short_apartment_body)].copy()
 
     normalized_wards = frame["ward_name"].map(_normalize_ward)
     rejected_ward_mask = normalized_wards.isna()
@@ -235,6 +262,8 @@ def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]
 
     stats = {
         "source_rows": len(df),
+        "rejected_rental_body_length_under_100": rejected_rental_short_body_rows,
+        "rejected_apartment_body_length_under_200": rejected_apartment_short_body_rows,
         "rejected_invalid_or_non_positive_price_size": rejected_measurement_rows,
         "rejected_unsupported_category": rejected_category_rows,
         "rejected_unsupported_or_null_ward": rejected_ward_rows,
