@@ -94,6 +94,22 @@ python main.py --step warehouse
 python main.py --step export
 ```
 
+Mặc định, bước `warehouse` loại các dòng có `size_m2 = 0`. Để thay vào đó điền size bằng KNN riêng theo category, chạy:
+
+```powershell
+python main.py --step warehouse --impute-size-knn
+```
+
+Mode này dùng log(size_m2) làm đích, fit `StandardScaler` và `KNNImputer` chỉ trên donor có size dương; căn hộ dùng `rooms_num`, latitude, longitude với `k=20`, còn phòng trọ dùng latitude/longitude và chín cờ tiện ích với `k=40`. Không thêm giá hay cột khác vào tập feature. Dòng được điền được đánh dấu `size_imputed_flag=1` trong `gold.rental_room`; dòng size thật có giá trị `0`. Áp dụng schema mới bằng `python scripts/init_db.py`. Cờ này được lưu ở Gold để downstream có thể dùng làm feature khi huấn luyện mô hình giá.
+
+Ngoài KNN, có thể chọn mode điền bằng median theo nhóm thuộc tính `category_name`, `rooms`, `ward_name`:
+
+```powershell
+python main.py --step warehouse --impute-size-median
+```
+
+Median được tính chỉ từ các dòng trong cùng nhóm có `size_m2 > 0`; dòng size=0 không có donor cùng nhóm sẽ bị loại. Hai mode `--impute-size-knn` và `--impute-size-median` loại trừ lẫn nhau. Nếu không truyền mode nào thì warehouse tiếp tục loại các dòng `size_m2 = 0` như hiện tại. Các dòng được điền bằng median cũng có `size_imputed_flag=1`.
+
 `--step merge` vẫn đọc và replay Bronze từ R2; `--skip-scrape` chỉ bỏ việc lấy tin mới, không bỏ replay. `warehouse` dựng lại `gold.rental_room` từ Silver hiện có; `export` xuất `silver.rental_room` ra CSV. Các tuỳ chọn hợp lệ được liệt kê bằng:
 
 ```powershell
@@ -120,7 +136,7 @@ Nhãn `flood_risk_label` biểu thị số năm trong hai mốc 2022/2025 có gh
 | Gold | PostgreSQL `gold` | Dataset curated hiện tại cho downstream consumer |
 | CSV export | `data/final/` | Bản xuất của `silver.rental_room`, UTF-8 BOM, không có cột index |
 
-Gold hiện là current-state, không lưu lịch sử thay đổi giá. Warehouse transform không loại dòng trùng; bảng `gold.rental_room` vẫn áp dụng khóa chính `(source, list_id)`, do đó các dòng trùng khóa tự nhiên có thể làm nạp Gold thất bại. Transform loại giá/diện tích không hợp lệ; chuẩn hóa category, ward và số phòng; chỉ giữ tọa độ trong bbox `[107.3000, 15.9167, 108.3333, 16.2333]` theo thứ tự `[min_lon, min_lat, max_lon, max_lat]`; giới hạn giá `Phòng trọ` ở 10 triệu; điền rooms chưa xác định bằng mode số phòng của căn hộ trước khi chỉ giữ `rooms <= 3`. Xem `src/warehouse/transform.py` và kiểm thử tương ứng để biết chi tiết.
+Gold hiện là current-state, không lưu lịch sử thay đổi giá. Warehouse transform không loại dòng trùng; bảng `gold.rental_room` vẫn áp dụng khóa chính `(source, list_id)`, do đó các dòng trùng khóa tự nhiên có thể làm nạp Gold thất bại. Transform loại giá/diện tích không hợp lệ và chỉ giữ `size_m2 < 120`; chuẩn hóa category, ward và số phòng; chỉ giữ tọa độ trong bbox `[107.3000, 15.9167, 108.3333, 16.2333]` theo thứ tự `[min_lon, min_lat, max_lon, max_lat]`; giới hạn giá `Phòng trọ` ở 10 triệu; điền rooms chưa xác định bằng mode số phòng của căn hộ trước khi chỉ giữ `rooms <= 3`. Xem `src/warehouse/transform.py` và kiểm thử tương ứng để biết chi tiết.
 
 ## Thư mục chính
 

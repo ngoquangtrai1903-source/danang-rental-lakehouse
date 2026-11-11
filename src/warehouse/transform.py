@@ -7,6 +7,8 @@ import unicodedata
 
 import numpy as np
 import pandas as pd
+from sklearn.impute import KNNImputer
+from sklearn.preprocessing import StandardScaler
 
 from src.db.final_repo import RENTAL_ROOM_COLUMNS
 
@@ -19,12 +21,37 @@ EXCLUDED_COLUMNS = {
     "street_number",
     "street_name",
 }
-WAREHOUSE_COLUMNS = [
+SOURCE_COLUMNS = [
     column for column in RENTAL_ROOM_COLUMNS if column not in EXCLUDED_COLUMNS
 ]
+SIZE_IMPUTED_FLAG = "size_imputed_flag"
+WAREHOUSE_COLUMNS = SOURCE_COLUMNS + [SIZE_IMPUTED_FLAG]
 FILTER_COLUMNS = ("price_vnd", "size_m2")
-SIZE_IMPUTATION_GROUP_COLUMNS = ("category_name", "rooms", "ward_name")
-RENTAL_ROOM_MAX_PRICE_VND = 10_000_000
+SIZE_MEDIAN_GROUP_COLUMNS = ("category_name", "rooms", "ward_name", "furnishing_status")
+SIZE_KNN_CONFIG = {
+    "Căn hộ/Chung cư": {
+        "cols": ("rooms_num", "latitude", "longitude"),
+        "k": 20,
+    },
+    "Phòng trọ": {
+        "cols": (
+            "latitude",
+            "longitude",
+            "has_balcony",
+            "free_hours",
+            "has_camera_security",
+            "has_elevator",
+            "has_mezzanine",
+            "private_bathroom",
+            "wifi",
+            "has_parking",
+            "has_window",
+        ),
+        "k": 40,
+    },
+}
+RENTAL_ROOM_MAX_PRICE_VND = 20_000_000
+MAX_SIZE_M2 = 120
 MAX_ROOM_COUNT = 3
 RENTAL_BODY_MIN_LENGTH = 100
 APARTMENT_BODY_MIN_LENGTH = 200
@@ -105,11 +132,108 @@ def _normalize_ward(value: object) -> str | None:
     return WARD_ALIASES.get(_category_key(text))
 
 
-def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
+def _impute_size_with_knn(frame: pd.DataFrame) -> tuple[int, int]:
+    """Impute zero sizes from real-size donors, independently per category."""
+    imputed_count = 0
+    rejected_without_donors = 0
+
+    for category, config in SIZE_KNN_CONFIG.items():
+        category_mask = frame["category_name"].eq(category)
+        target_mask = category_mask & frame["size_m2"].eq(0)
+        donor_mask = category_mask & frame["size_m2"].gt(0)
+        target_rows = frame.loc[target_mask]
+        donor_rows = frame.loc[donor_mask]
+        if target_rows.empty:
+            continue
+        if donor_rows.empty:
+            rejected_without_donors += len(target_rows)
+            frame.drop(index=target_rows.index, inplace=True)
+            continue
+
+        features = list(config["cols"])
+        donor_features = _size_knn_features(donor_rows, features)
+        target_features = _size_knn_features(target_rows, features)
+        for feature_frame in (donor_features, target_features):
+            for column in feature_frame.columns:
+                feature_frame[column] = pd.to_numeric(
+                    feature_frame[column], errors="coerce"
+                )
+            feature_frame.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+        scaler = StandardScaler()
+        donor_features_scaled = scaler.fit_transform(donor_features)
+        target_features_scaled = scaler.transform(target_features)
+
+        donor_values = np.column_stack(
+            (donor_features_scaled, np.log(donor_rows["size_m2"].to_numpy()))
+        )
+        target_values = np.column_stack(
+            (
+                target_features_scaled,
+                np.full(len(target_rows), np.nan),
+            )
+        )
+        imputer = KNNImputer(
+            n_neighbors=config["k"],
+            weights="distance",
+        )
+        imputer.fit(donor_values)
+        predicted_log_sizes = imputer.transform(target_values)[:, -1]
+        predicted_sizes = np.exp(predicted_log_sizes)
+        valid_predictions = np.isfinite(predicted_sizes) & (predicted_sizes > 0)
+        valid_indices = target_rows.index[valid_predictions]
+        frame.loc[valid_indices, "size_m2"] = predicted_sizes[valid_predictions]
+        frame.loc[valid_indices, SIZE_IMPUTED_FLAG] = 1
+        rejected_indices = target_rows.index[~valid_predictions]
+        if len(rejected_indices):
+            frame.drop(index=rejected_indices, inplace=True)
+            rejected_without_donors += len(rejected_indices)
+        imputed_count += int(valid_predictions.sum())
+
+    return imputed_count, rejected_without_donors
+
+
+def _size_knn_features(rows: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    features = rows[[column for column in columns if column != "rooms_num"]].copy()
+    if "rooms_num" in columns:
+        features["rooms_num"] = pd.to_numeric(
+            rows["rooms"].map(_normalize_room_count),
+            errors="coerce",
+        )
+    return features.loc[:, columns]
+
+
+def _impute_size_with_group_median(frame: pd.DataFrame) -> tuple[int, int]:
+    """Impute zero sizes from positive-size medians in matching listing groups."""
+    donor_sizes = frame["size_m2"].where(frame["size_m2"].gt(0))
+    group_medians = (
+        frame.assign(_donor_size_m2=donor_sizes)
+        .groupby(list(SIZE_MEDIAN_GROUP_COLUMNS), dropna=False)["_donor_size_m2"]
+        .transform("median")
+    )
+    target_mask = frame["size_m2"].eq(0)
+    imputable_mask = target_mask & group_medians.notna()
+    rejected_mask = target_mask & group_medians.isna()
+
+    frame.loc[imputable_mask, "size_m2"] = group_medians.loc[imputable_mask]
+    frame.loc[imputable_mask, SIZE_IMPUTED_FLAG] = 1
+    frame.drop(index=frame.index[rejected_mask], inplace=True)
+    return int(imputable_mask.sum()), int(rejected_mask.sum())
+
+
+def transform_lake_final(
+    df: pd.DataFrame,
+    *,
+    impute_size_knn: bool = False,
+    impute_size_median: bool = False,
+) -> tuple[pd.DataFrame, dict[str, int]]:
     """Apply warehouse category, location, room-count, and measurement rules."""
+    if impute_size_knn and impute_size_median:
+        raise ValueError("Choose only one size imputation mode: KNN or median.")
+
     missing = [
         column
-        for column in WAREHOUSE_COLUMNS + ["body"]
+        for column in SOURCE_COLUMNS + ["body"]
         if column not in df.columns
     ]
     if missing:
@@ -118,18 +242,29 @@ def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]
             + ", ".join(missing)
         )
 
-    frame = df[WAREHOUSE_COLUMNS].copy()
-    body_text = df["body"].astype("string").str.strip()
+    frame = df[SOURCE_COLUMNS].copy().reset_index(drop=True)
+    frame[SIZE_IMPUTED_FLAG] = 0
+    body_text = df["body"].astype("string").str.strip().reset_index(drop=True)
 
     for column in FILTER_COLUMNS:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    frame["size_m2"] = frame["size_m2"].astype(float)
 
-    measurements = frame[list(FILTER_COLUMNS)]
-    invalid_measurement = measurements.isna().any(axis=1) | ~np.isfinite(
-        measurements
-    ).all(axis=1)
-    non_positive_measurement = measurements.le(0).any(axis=1)
-    rejected_mask = invalid_measurement | non_positive_measurement
+    invalid_price = (
+        frame["price_vnd"].isna()
+        | ~np.isfinite(frame["price_vnd"])
+        | frame["price_vnd"].le(0)
+    )
+    zero_size_rejected = frame["size_m2"].eq(0) if not (
+        impute_size_knn or impute_size_median
+    ) else pd.Series(False, index=frame.index)
+    invalid_size = (
+        frame["size_m2"].isna()
+        | ~np.isfinite(frame["size_m2"])
+        | frame["size_m2"].lt(0)
+        | zero_size_rejected
+    )
+    rejected_mask = invalid_price | invalid_size
     rejected_measurement_rows = int(rejected_mask.sum())
     frame = frame.loc[~rejected_mask].copy()
 
@@ -229,24 +364,33 @@ def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]
     rejected_rooms_over_limit = int(over_room_limit.sum())
     frame = frame.loc[~over_room_limit].copy()
 
-    # To enable this alternative, allow zero size_m2 through the <= 0 filter
-    # above, then uncomment this group-median imputation block.
     sizes_imputed_by_group_median = 0
-    # zero_size = frame["size_m2"].eq(0)
-    # positive_sizes = frame["size_m2"].where(frame["size_m2"].gt(0))
-    # grouped_size_medians = (
-    #     frame.assign(_positive_size_m2=positive_sizes)
-    #     .groupby(list(SIZE_IMPUTATION_GROUP_COLUMNS))["_positive_size_m2"]
-    #     .transform("median")
-    # )
-    # size_median_available = zero_size & grouped_size_medians.notna()
-    # sizes_imputed_by_group_median = int(size_median_available.sum())
-    # frame.loc[size_median_available, "size_m2"] = grouped_size_medians.loc[
-    #     size_median_available
-    # ]
-    # rejected_unimputable_sizes = int((zero_size & ~size_median_available).sum())
-    # rejected_measurement_rows += rejected_unimputable_sizes
-    # frame = frame.loc[~frame["size_m2"].eq(0)].copy()
+    sizes_imputed_with_knn = 0
+    rejected_size_without_knn_donors = 0
+    rejected_size_without_group_median = 0
+    if impute_size_knn:
+        (
+            sizes_imputed_with_knn,
+            rejected_size_without_knn_donors,
+        ) = _impute_size_with_knn(frame)
+        rejected_measurement_rows += rejected_size_without_knn_donors
+    elif impute_size_median:
+        (
+            sizes_imputed_by_group_median,
+            rejected_size_without_group_median,
+        ) = _impute_size_with_group_median(frame)
+        rejected_measurement_rows += rejected_size_without_group_median
+
+    if impute_size_knn or impute_size_median:
+        imputed_mask = frame[SIZE_IMPUTED_FLAG].eq(1)
+        frame.loc[imputed_mask, "price_per_m2_vnd"] = (
+            frame.loc[imputed_mask, "price_vnd"]
+            / frame.loc[imputed_mask, "size_m2"]
+        ).round()
+
+    size_at_or_above_limit = frame["size_m2"].ge(MAX_SIZE_M2)
+    rejected_size_at_or_above_limit = int(size_at_or_above_limit.sum())
+    frame = frame.loc[~size_at_or_above_limit].copy()
 
     invalid_key = (
         frame["source"].isna()
@@ -270,7 +414,11 @@ def transform_lake_final(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]
         "rejected_missing_or_invalid_coordinates": rejected_coordinate_rows,
         "rejected_outside_coordinate_bounds": rejected_outside_coordinate_bounds,
         "rejected_rental_room_over_price_limit": rejected_rental_room_over_price_limit,
+        "rejected_size_at_or_above_120": rejected_size_at_or_above_limit,
         "size_m2_imputed_by_group_median": sizes_imputed_by_group_median,
+        "size_m2_imputed_with_knn": sizes_imputed_with_knn,
+        "rejected_size_without_knn_donors": rejected_size_without_knn_donors,
+        "rejected_size_without_group_median": rejected_size_without_group_median,
         "rejected_invalid_rooms": rejected_room_rows,
         "rooms_imputed_with_mode": rooms_imputed_with_mode,
         "rejected_rooms_over_limit": rejected_rooms_over_limit,

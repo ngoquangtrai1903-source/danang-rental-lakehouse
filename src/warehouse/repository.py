@@ -20,11 +20,12 @@ FEATURE_BIT_COLUMNS = (
     "has_parking",
     "has_window",
 )
+WAREHOUSE_FLAG_COLUMNS = FEATURE_BIT_COLUMNS + ("size_imputed_flag",)
 
 def replace_rental_room_current(df: pd.DataFrame) -> int:
     """Atomically replace the Gold consumer table after existing transforms."""
     frame = df.copy()
-    for column in FEATURE_BIT_COLUMNS:
+    for column in WAREHOUSE_FLAG_COLUMNS:
         frame[column] = frame[column].map(_bool_to_bit)
     for column in ("flooded_2022", "flooded_2025"):
         frame[column] = frame[column].map(_bool_to_bit).map(
@@ -36,6 +37,6 @@ def replace_rental_room_current(df: pd.DataFrame) -> int:
         frame,
         WAREHOUSE_COLUMNS,
         dtype_overrides={
-            column: SmallInteger() for column in FEATURE_BIT_COLUMNS
+            column: SmallInteger() for column in WAREHOUSE_FLAG_COLUMNS
         },
     )

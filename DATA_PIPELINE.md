@@ -79,6 +79,8 @@ python main.py --step spatial
 python main.py --step flood
 python main.py --step text
 python main.py --step warehouse
+python main.py --step warehouse --impute-size-knn
+python main.py --step warehouse --impute-size-median
 python main.py --step export
 ```
 
@@ -90,6 +92,8 @@ Lưu ý về chạy riêng:
 - `--step merge` cần R2 và PostgreSQL vì replay toàn bộ payload trước khi merge.
 - `--step geocode` cần dữ liệu đã qua merge; `spatial` cần dữ liệu đã geocode; `flood` cần `spatial`; `text` cần `spatial`.
 - `--step warehouse` chỉ dựng Gold từ `silver.rental_room` hiện có; `--step export` chỉ xuất CSV từ Silver, không dựng Gold.
+- `--step warehouse` mặc định loại size bằng 0; tùy chọn `--impute-size-knn` bật KNN theo category và lưu `size_imputed_flag` trong Gold để downstream dùng làm feature.
+- Tùy chọn `--impute-size-median` thay KNN bằng median `size_m2` của nhóm cùng category, số phòng và ward; chỉ dùng donor có size dương. Hai mode imputation không dùng cùng lúc.
 - `main.py` hiện không có bước huấn luyện model hoặc các tuỳ chọn `--train`.
 
 Ở bước `merge`, tiêu chí loại tin trùng chỉ là `body` sau khi gộp các khoảng trắng liên tiếp và chuyển về chữ thường Unicode; không dùng `subject`, `source` hoặc `list_id` trong tiêu chí này. Dòng thiếu body hoặc body rỗng sau chuẩn hóa được giữ lại. Nếu trùng, giữ dòng xuất hiện trước và không sửa nội dung gốc.
@@ -122,6 +126,7 @@ GeoJSON đầu vào là file nguồn cần thiết và không nên loại khỏi
 - R2 là nơi lưu payload Bronze chính thức. PostgreSQL `ops` giữ batch/index/metadata, không giữ payload body.
 - Gold hiện là bảng current-state, không phải lịch sử biến động giá. Transform không loại dòng trùng; tuy nhiên bảng `gold.rental_room` vẫn có khóa chính `(source, list_id)`, nên dữ liệu trùng khóa tự nhiên có thể khiến thao tác nạp Gold thất bại.
 - Gold chỉ giữ tọa độ trong bbox Đà Nẵng `[107.3000, 15.9167, 108.3333, 16.2333]` (thứ tự `[min_lon, min_lat, max_lon, max_lat]`), bao gồm điểm nằm trên biên; giá `Phòng trọ` không vượt quá 10 triệu.
+- Gold chỉ giữ tin có `size_m2 < 120`; tin đúng 120 m² hoặc lớn hơn bị loại sau bước imputation.
 - `rooms` được chuẩn hóa trước; “Không xác định” của căn hộ được điền bằng mode số phòng căn hộ hợp lệ trong tập còn lại sau các bộ lọc trước đó, nhưng trước giới hạn 3 phòng (nếu mode hòa, chọn giá trị nhỏ hơn). Sau đó chỉ giữ số phòng không vượt quá 3. Phòng trọ được chuẩn hóa thành `1`; nếu không có mode hợp lệ thì rooms chưa xác định bị loại.
 - Các thư mục `data/raw/`, `data/processed/`, `data/final/` và `reports/` chứa dữ liệu/đầu ra local và được `.gitignore` loại khỏi các file mới.
 - `.gitignore` không tự bỏ các file đã được Git theo dõi. Trước khi push, kiểm tra `git status --short`; nếu muốn bỏ dữ liệu/artifact cũ khỏi commit, cần chủ động bỏ tracking bằng `git rm --cached` sau khi rà soát thay đổi sẽ được stage. Lệnh này giữ bản local nhưng tạo thay đổi trong Git index.

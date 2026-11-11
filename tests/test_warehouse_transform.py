@@ -50,6 +50,20 @@ class WarehouseTransformTests(unittest.TestCase):
 
         self.assertEqual(transformed.iloc[0]["nearest_beach_code"], "TienSa")
 
+    def test_keeps_only_sizes_strictly_below_120_m2(self):
+        source = pd.DataFrame(
+            [
+                make_warehouse_source(list_id="below-limit", size_m2=119.99),
+                make_warehouse_source(list_id="at-limit", size_m2=120),
+                make_warehouse_source(list_id="above-limit", size_m2=120.01),
+            ]
+        )
+
+        transformed, stats = transform_lake_final(source)
+
+        self.assertEqual(transformed["list_id"].tolist(), ["below-limit"])
+        self.assertEqual(stats["rejected_size_at_or_above_120"], 2)
+
     def test_filters_invalid_measurements_and_categories_and_drops_excluded_columns(self):
         source = pd.DataFrame(
             [
@@ -96,13 +110,18 @@ class WarehouseTransformTests(unittest.TestCase):
                 "rejected_missing_or_invalid_coordinates": 0,
                 "rejected_outside_coordinate_bounds": 0,
                 "rejected_rental_room_over_price_limit": 0,
+                "rejected_size_at_or_above_120": 0,
                 "size_m2_imputed_by_group_median": 0,
+                "size_m2_imputed_with_knn": 0,
+                "rejected_size_without_knn_donors": 0,
+                "rejected_size_without_group_median": 0,
                 "rejected_invalid_rooms": 0,
                 "rooms_imputed_with_mode": 0,
                 "rejected_rooms_over_limit": 0,
                 "loaded_rows": 2,
             },
         )
+        self.assertEqual(transformed["size_imputed_flag"].tolist(), [0, 0])
 
     def test_rejects_zero_size_even_when_group_median_is_available(self):
         source = pd.DataFrame(
@@ -186,6 +205,172 @@ class WarehouseTransformTests(unittest.TestCase):
         )
         self.assertEqual(stats["size_m2_imputed_by_group_median"], 0)
         self.assertEqual(stats["rejected_invalid_or_non_positive_price_size"], 5)
+
+    def test_group_median_imputes_only_matching_category_room_and_ward(self):
+        source = pd.DataFrame(
+            [
+                make_warehouse_source(
+                    list_id="apartment-10",
+                    category_name="Căn hộ",
+                    rooms="2",
+                    ward_name="Hải Châu",
+                    size_m2=10,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-30",
+                    category_name="Căn hộ/Chung cư",
+                    rooms="2 PN",
+                    ward_name="Hải Châu",
+                    size_m2=30,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-zero-match",
+                    category_name="Căn hộ",
+                    rooms="2",
+                    ward_name="Hải Châu",
+                    size_m2=0,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-zero-different-ward",
+                    category_name="Căn hộ",
+                    rooms="2",
+                    ward_name="Sơn Trà",
+                    size_m2=0,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-zero-different-rooms",
+                    category_name="Căn hộ",
+                    rooms="1",
+                    ward_name="Hải Châu",
+                    size_m2=0,
+                ),
+            ]
+        )
+
+        transformed, stats = transform_lake_final(source, impute_size_median=True)
+
+        self.assertEqual(
+            transformed["list_id"].tolist(),
+            ["apartment-10", "apartment-30", "apartment-zero-match"],
+        )
+        self.assertEqual(transformed.iloc[2]["size_m2"], 20)
+        self.assertEqual(transformed.iloc[2]["size_imputed_flag"], 1)
+        self.assertEqual(transformed.iloc[0]["size_imputed_flag"], 0)
+        self.assertEqual(
+            transformed.iloc[2]["price_per_m2_vnd"],
+            round(2_000_000 / 20),
+        )
+        self.assertEqual(stats["size_m2_imputed_by_group_median"], 1)
+        self.assertEqual(stats["rejected_size_without_group_median"], 2)
+
+    def test_size_imputation_modes_are_mutually_exclusive(self):
+        source = pd.DataFrame([make_warehouse_source()])
+
+        with self.assertRaisesRegex(ValueError, "Choose only one size imputation"):
+            transform_lake_final(
+                source,
+                impute_size_knn=True,
+                impute_size_median=True,
+            )
+
+    def test_knn_imputes_log_size_separately_for_each_category(self):
+        feature_values = {
+            "has_balcony": False,
+            "free_hours": False,
+            "has_camera_security": False,
+            "has_elevator": False,
+            "has_mezzanine": False,
+            "private_bathroom": False,
+            "wifi": False,
+            "has_parking": False,
+            "has_window": False,
+        }
+        source = pd.DataFrame(
+            [
+                make_warehouse_source(
+                    list_id="apartment-10",
+                    category_name="Căn hộ",
+                    rooms="2",
+                    size_m2=10,
+                    **feature_values,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-40",
+                    category_name="Căn hộ",
+                    rooms="2",
+                    size_m2=40,
+                    **feature_values,
+                ),
+                make_warehouse_source(
+                    list_id="apartment-zero",
+                    category_name="Căn hộ/Chung cư",
+                    rooms="2",
+                    size_m2=0,
+                    **feature_values,
+                ),
+                make_warehouse_source(
+                    list_id="rental-16",
+                    category_name="Phòng trọ",
+                    size_m2=16,
+                    **feature_values,
+                ),
+                make_warehouse_source(
+                    list_id="rental-64",
+                    category_name="Phòng trọ",
+                    size_m2=64,
+                    **feature_values,
+                ),
+                make_warehouse_source(
+                    list_id="rental-zero",
+                    category_name="Phòng trọ",
+                    size_m2=0,
+                    **feature_values,
+                ),
+            ]
+        )
+
+        transformed, stats = transform_lake_final(source, impute_size_knn=True)
+
+        sizes = transformed.set_index("list_id")["size_m2"]
+        flags = transformed.set_index("list_id")["size_imputed_flag"]
+        self.assertAlmostEqual(sizes["apartment-zero"], 20)
+        self.assertAlmostEqual(sizes["rental-zero"], 32)
+        self.assertEqual(flags["apartment-zero"], 1)
+        self.assertEqual(flags["rental-zero"], 1)
+        self.assertEqual(flags["apartment-10"], 0)
+        self.assertEqual(flags["rental-16"], 0)
+        self.assertAlmostEqual(
+            transformed.set_index("list_id").loc[
+                "apartment-zero", "price_per_m2_vnd"
+            ],
+            100_000,
+        )
+        self.assertEqual(stats["size_m2_imputed_with_knn"], 2)
+        self.assertEqual(stats["rejected_size_without_knn_donors"], 0)
+
+    def test_knn_drops_zero_size_without_same_category_donors(self):
+        source = pd.DataFrame(
+            [
+                make_warehouse_source(
+                    list_id="apartment-zero",
+                    category_name="Căn hộ",
+                    rooms="2",
+                    size_m2=0,
+                ),
+                make_warehouse_source(
+                    list_id="rental-donor",
+                    category_name="Phòng trọ",
+                    size_m2=20,
+                ),
+            ]
+        )
+
+        transformed, stats = transform_lake_final(source, impute_size_knn=True)
+
+        self.assertEqual(transformed["list_id"].tolist(), ["rental-donor"])
+        self.assertEqual(stats["size_m2_imputed_with_knn"], 0)
+        self.assertEqual(stats["rejected_size_without_knn_donors"], 1)
+        self.assertEqual(stats["rejected_invalid_or_non_positive_price_size"], 1)
 
     def test_normalizes_room_counts_and_keeps_unknown_marker(self):
         source = pd.DataFrame(

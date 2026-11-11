@@ -145,8 +145,8 @@ def infer_furnishing_status(subject_text: str = "", body_text: str = "") -> str 
     }
     if len(matched_items) >= 8:
         return "Nội thất cao cấp"
-    if len(matched_items) >= 5:
+    if len(matched_items) >= 6:
         return "Đầy đủ nội thất"
-    if len(matched_items) >= 2:
+    if len(matched_items) >= 4:
         return "Cơ bản"
     return None

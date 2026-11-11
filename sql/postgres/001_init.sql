@@ -188,5 +188,6 @@ CREATE TABLE IF NOT EXISTS gold.rental_room (
     wifi SMALLINT,
     has_parking SMALLINT,
     has_window SMALLINT,
+    size_imputed_flag SMALLINT NOT NULL DEFAULT 0 CHECK (size_imputed_flag IN (0, 1)),
     PRIMARY KEY (source, list_id)
 );

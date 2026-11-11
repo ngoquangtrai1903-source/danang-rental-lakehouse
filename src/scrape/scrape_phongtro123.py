@@ -342,9 +342,9 @@ def get_furnishing_status(soup, body_text="", subject_text=""):
     
     if len(matched_items) >= 8:
         return "Nội thất cao cấp"
-    elif len(matched_items) >= 5:
+    elif len(matched_items) >= 6:
         return "Đầy đủ nội thất"
-    elif len(matched_items) >= 2:
+    elif len(matched_items) >= 4:
         return "Cơ bản"
 
     return None

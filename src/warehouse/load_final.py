@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -15,7 +16,11 @@ from src.warehouse.repository import replace_rental_room_current
 from src.warehouse.transform import transform_lake_final
 
 
-def load_final_to_warehouse() -> dict[str, int]:
+def load_final_to_warehouse(
+    *,
+    impute_size_knn: bool = False,
+    impute_size_median: bool = False,
+) -> dict[str, int]:
     """Apply the existing transform and atomically rebuild Gold."""
     silver_df = final_repo.fetch_rental_room()
     if silver_df.empty:
@@ -23,7 +28,11 @@ def load_final_to_warehouse() -> dict[str, int]:
             "Silver rental_room is empty; refusing to replace the Gold "
             "table with an empty dataset."
         )
-    gold_df, stats = transform_lake_final(silver_df)
+    gold_df, stats = transform_lake_final(
+        silver_df,
+        impute_size_knn=impute_size_knn,
+        impute_size_median=impute_size_median,
+    )
     if gold_df.empty:
         raise ValueError(
             "No Silver rental_room rows passed the existing Gold filters; "
@@ -41,11 +50,16 @@ def load_final_to_warehouse() -> dict[str, int]:
         f"filtered_rental_short_body={stats['rejected_rental_body_length_under_100']}, "
         f"filtered_apartment_short_body={stats['rejected_apartment_body_length_under_200']}, "
         f"filtered_price_size={stats['rejected_invalid_or_non_positive_price_size']}, "
+        f"size_imputed_with_knn={stats['size_m2_imputed_with_knn']}, "
+        f"size_imputed_with_group_median={stats['size_m2_imputed_by_group_median']}, "
+        f"size_without_knn_donors={stats['rejected_size_without_knn_donors']}, "
+        f"size_without_median_group={stats['rejected_size_without_group_median']}, "
         f"filtered_category={stats['rejected_unsupported_category']}, "
         f"filtered_ward={stats['rejected_unsupported_or_null_ward']}, "
         f"filtered_coordinates={stats['rejected_missing_or_invalid_coordinates']}, "
         f"filtered_outside_danang={stats['rejected_outside_coordinate_bounds']}, "
         f"filtered_rental_room_over_price={stats['rejected_rental_room_over_price_limit']}, "
+        f"filtered_size_at_or_above_120={stats['rejected_size_at_or_above_120']}, "
         f"rooms_imputed_with_mode={stats['rooms_imputed_with_mode']}, "
         f"filtered_invalid_rooms={stats['rejected_invalid_rooms']}, "
         f"filtered_rooms_over_limit={stats['rejected_rooms_over_limit']}, "
@@ -55,7 +69,28 @@ def load_final_to_warehouse() -> dict[str, int]:
 
 
 def main() -> None:
-    load_final_to_warehouse()
+    parser = argparse.ArgumentParser(
+        description="Transform Silver rental_room and rebuild Gold."
+    )
+    imputation_modes = parser.add_mutually_exclusive_group()
+    imputation_modes.add_argument(
+        "--impute-size-knn",
+        action="store_true",
+        help="Impute zero sizes with category-specific KNN before loading Gold.",
+    )
+    imputation_modes.add_argument(
+        "--impute-size-median",
+        action="store_true",
+        help=(
+            "Impute zero sizes with the median for matching category, rooms, "
+            "and ward groups before loading Gold."
+        ),
+    )
+    args = parser.parse_args()
+    load_final_to_warehouse(
+        impute_size_knn=args.impute_size_knn,
+        impute_size_median=args.impute_size_median,
+    )
 
 
 if __name__ == "__main__":

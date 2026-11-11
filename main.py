@@ -145,10 +145,12 @@ def step_warehouse(args):
     print("BƯỚC 8: BUILD GOLD → gold.rental_room")
     print("=" * 60 + "\n")
 
-    subprocess.run(
-        [sys.executable, str(SRC_DIR / "warehouse" / "load_final.py")],
-        check=True,
-    )
+    command = [sys.executable, str(SRC_DIR / "warehouse" / "load_final.py")]
+    if args.impute_size_knn:
+        command.append("--impute-size-knn")
+    elif args.impute_size_median:
+        command.append("--impute-size-median")
+    subprocess.run(command, check=True)
 
 
 def step_all(args):
@@ -191,6 +193,8 @@ Ví dụ:
   python main.py --step text
   python main.py --step export
   python main.py --step warehouse
+  python main.py --step warehouse --impute-size-knn
+  python main.py --step warehouse --impute-size-median
         """,
     )
 
@@ -214,6 +218,20 @@ Ví dụ:
         "--skip-scrape",
         action="store_true",
         help="Bỏ qua bước cào (dùng khi payload đã có trong R2 Bronze)",
+    )
+    imputation_modes = parser.add_mutually_exclusive_group()
+    imputation_modes.add_argument(
+        "--impute-size-knn",
+        action="store_true",
+        help="Điền size_m2=0 bằng KNN khi chạy warehouse (mặc định loại các dòng này).",
+    )
+    imputation_modes.add_argument(
+        "--impute-size-median",
+        action="store_true",
+        help=(
+            "Điền size_m2=0 bằng median theo category, rooms và ward khi chạy "
+            "warehouse."
+        ),
     )
     parser.add_argument(
         "--flood-geojson-2022",

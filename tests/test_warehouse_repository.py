@@ -13,6 +13,7 @@ class WarehouseRepositoryTests(unittest.TestCase):
         row = {column: None for column in FEATURE_BIT_COLUMNS}
         row.update(
             {
+                "size_imputed_flag": True,
                 "has_balcony": True,
                 "free_hours": False,
                 "has_camera_security": None,
@@ -31,10 +32,13 @@ class WarehouseRepositoryTests(unittest.TestCase):
         self.assertFalse(frame.loc[0, "flooded_2025"])
 
         dtype_overrides = replace_dataframe.call_args.kwargs["dtype_overrides"]
-        self.assertEqual(set(dtype_overrides), set(FEATURE_BIT_COLUMNS))
+        self.assertEqual(
+            set(dtype_overrides), set(FEATURE_BIT_COLUMNS) | {"size_imputed_flag"}
+        )
         self.assertTrue(
             all(isinstance(dtype, SmallInteger) for dtype in dtype_overrides.values())
         )
+        self.assertEqual(frame.loc[0, "size_imputed_flag"], 1)
 
 
 if __name__ == "__main__":
